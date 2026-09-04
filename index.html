@@ -348,8 +348,8 @@ var AUDIO_BASE64 = "SUQzBAAAAAADbFRYWFgAAAATAAADbWlub3JfdmVyc2lvbgA1MTIAVFhYWAAA
 </script>
 
 <!-- Contrôle de la musique -->
-<button id="music-toggle" class="music-toggle" type="button" aria-label="Mettre la musique en pause" aria-pressed="true">
-    <span class="music-icon" aria-hidden="true">❚❚</span>
+<button id="music-toggle" class="music-toggle is-paused" type="button" aria-label="Lancer la musique" aria-pressed="false">
+    <span class="music-icon" aria-hidden="true">▶</span>
   </button>
 
 <!-- HERO -->
@@ -432,10 +432,6 @@ var AUDIO_BASE64 = "SUQzBAAAAAADbFRYWFgAAAATAAADbWlub3JfdmVyc2lvbgA1MTIAVFhYWAAA
     <div class="field">
       <label for="nom">Nom et prénom</label>
       <input type="text" id="nom" name="nom" required>
-    </div>
-    <div class="field">
-      <label for="msg">Message (optionnel)</label>
-      <textarea id="msg" name="msg" placeholder="Un mot pour FlorLaLuna..."></textarea>
     </div>
     <button type="submit" class="btn-envoyer">Confirmer via WhatsApp</button>
   </form>
@@ -526,12 +522,18 @@ var AUDIO_BASE64 = "SUQzBAAAAAADbFRYWFgAAAATAAADbWlub3JfdmVyc2lvbgA1MTIAVFhYWAAA
   let instantDepart = 0;
 
   function mettreAJourBoutonMusique() {
-    const enLecture = !!sourceNode;
+    // On ne considère la musique "en lecture" que si elle est vraiment audible :
+    // soit via Web Audio avec un contexte réellement actif ("running"),
+    // soit via la balise <audio> classique en fallback.
+    const enLectureWebAudio = !!sourceNode && audioContext && audioContext.state === 'running';
+    const enLectureFallback = !audioContext && !musique.paused && musique.currentTime > 0;
+    const enLecture = enLectureWebAudio || enLectureFallback;
+
     boutonMusique.classList.toggle('is-paused', !enLecture);
     boutonMusique.setAttribute('aria-pressed', String(enLecture));
     boutonMusique.setAttribute(
       'aria-label',
-      enLecture ? 'Mettre la musique en pause' : 'Reprendre la musique'
+      enLecture ? 'Mettre la musique en pause' : 'Lancer la musique'
     );
     iconeMusique.textContent = enLecture ? '❚❚' : '▶';
   }
@@ -539,6 +541,7 @@ var AUDIO_BASE64 = "SUQzBAAAAAADbFRYWFgAAAATAAADbWlub3JfdmVyc2lvbgA1MTIAVFhYWAAA
   async function preparerMusique() {
     try {
       audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      audioContext.onstatechange = mettreAJourBoutonMusique;
 
       // Aucune requête réseau : la musique est déjà dans la page (base64).
       // Il ne reste que le décodage, qui est quasi instantané pour ce format.
@@ -546,12 +549,11 @@ var AUDIO_BASE64 = "SUQzBAAAAAADbFRYWFgAAAATAAADbWlub3JfdmVyc2lvbgA1MTIAVFhYWAAA
       audioBuffer = await audioContext.decodeAudioData(tamponBrut);
       musiquePrete = true;
 
-      // Si l'utilisateur a déjà cliqué/touché/scrolle pendant le décodage,
-      // on démarre dès qu'il est prêt.
-      if (lectureDemandee) {
-        lectureDemandee = false;
-        jouerMusique();
-      }
+      // On tente de jouer tout de suite : si l'utilisateur est arrivé en cliquant
+      // sur un lien menant au site, la plupart des navigateurs (Chrome, Edge...)
+      // considèrent ce clic comme suffisant pour autoriser la lecture automatique.
+      lectureDemandee = false;
+      jouerMusique();
 
       console.log('Musique décodée et prête à jouer.');
     } catch (erreur) {
@@ -570,10 +572,8 @@ var AUDIO_BASE64 = "SUQzBAAAAAADbFRYWFgAAAATAAADbWlub3JfdmVyc2lvbgA1MTIAVFhYWAAA
       }
 
       musiquePrete = true;
-      if (lectureDemandee) {
-        lectureDemandee = false;
-        jouerMusique();
-      }
+      lectureDemandee = false;
+      jouerMusique();
     }
   }
 
@@ -651,28 +651,25 @@ var AUDIO_BASE64 = "SUQzBAAAAAADbFRYWFgAAAATAAADbWlub3JfdmVyc2lvbgA1MTIAVFhYWAAA
     mettreAJourBoutonMusique();
   }
 
-  async function lancerAuPremierGeste(e) {
+  function lancerAuPremierGeste(e) {
     if (e.target === boutonMusique || boutonMusique.contains(e.target)) return;
 
-    // Le premier geste demande la lecture. Si le préchargement n'est pas
-    // encore terminé, on mémorise la demande et on lancera la musique
-    // immédiatement à la fin du téléchargement/décodage.
+    // CRUCIAL POUR SAFARI iOS : tout doit être déclenché de façon strictement
+    // synchrone, dans le même tick que l'événement tactile. Le moindre "await"
+    // avant resume()/start() fait perdre le lien avec le geste utilisateur,
+    // et Safari bloque alors le son silencieusement.
     window.removeEventListener('pointerdown', lancerAuPremierGeste);
     window.removeEventListener('touchstart', lancerAuPremierGeste);
+    window.removeEventListener('touchend', lancerAuPremierGeste);
     window.removeEventListener('click', lancerAuPremierGeste);
     window.removeEventListener('scroll', lancerAuPremierGeste);
 
-    lectureDemandee = true;
-
-    try {
-      if (audioContext && audioContext.state === 'suspended') {
-        await audioContext.resume();
-      }
-    } catch (e) {}
-
     if (musiquePrete) {
       lectureDemandee = false;
-      jouerMusique();
+      jouerMusique(); // resume() + start() appelés à l'intérieur, de façon synchrone
+    } else {
+      // Le fichier n'a pas fini de se décoder : on démarrera dès qu'il sera prêt.
+      lectureDemandee = true;
     }
   }
 
@@ -686,10 +683,14 @@ var AUDIO_BASE64 = "SUQzBAAAAAADbFRYWFgAAAATAAADbWlub3JfdmVyc2lvbgA1MTIAVFhYWAAA
     }
   });
 
-  // IMPORTANT : le scroll est également considéré comme une interaction.
-  // Le navigateur doit néanmoins avoir eu le temps de décoder l'audio embarqué.
+  // IMPORTANT : sur iOS Safari, seuls des gestes tactiles directs (touchstart,
+  // touchend, click) sont reconnus comme une activation valide pour l'audio.
+  // Le scroll est conservé pour les autres navigateurs (Chrome/Edge/Android)
+  // qui l'acceptent, mais Safari l'ignore — d'où l'intérêt d'avoir aussi
+  // touchstart/touchend/click, qui eux fonctionnent de façon fiable sur iPhone.
   window.addEventListener('pointerdown', lancerAuPremierGeste, { passive:true });
   window.addEventListener('touchstart', lancerAuPremierGeste, { passive:true });
+  window.addEventListener('touchend', lancerAuPremierGeste, { passive:true });
   window.addEventListener('click', lancerAuPremierGeste, { passive:true });
   window.addEventListener('scroll', lancerAuPremierGeste, { passive:true });
 
@@ -724,11 +725,7 @@ var AUDIO_BASE64 = "SUQzBAAAAAADbFRYWFgAAAATAAADbWlub3JfdmVyc2lvbgA1MTIAVFhYWAAA
   document.getElementById('rsvp-form').addEventListener('submit', function(e){
     e.preventDefault();
     const nom = document.getElementById('nom').value.trim();
-    const msg = document.getElementById('msg').value.trim();
-    const invitationUrl = window.location.href.split('#')[0];
-    let texte = `Bonjour, je confirme ma présence à La Nuit des Anges.\nNom : ${nom}`;
-    texte += `\\nInvitation : ${invitationUrl}`;
-    if(msg) texte += `\nMessage : ${msg}`;
+    const texte = `Bonjour ! Je confirme avec plaisir ma présence à La Nuit des Anges. 🕊️\n\n*${nom}*`;
     const url = `https://wa.me/2290197368656?text=${encodeURIComponent(texte)}`;
     window.open(url, '_blank');
   });
