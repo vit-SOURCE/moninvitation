@@ -663,6 +663,8 @@ var AUDIO_BASE64 = "SUQzBAAAAAADbFRYWFgAAAATAAADbWlub3JfdmVyc2lvbgA1MTIAVFhYWAAA
     window.removeEventListener('touchend', lancerAuPremierGeste);
     window.removeEventListener('click', lancerAuPremierGeste);
     window.removeEventListener('scroll', lancerAuPremierGeste);
+    window.removeEventListener('wheel', lancerAuPremierGeste);
+    window.removeEventListener('keydown', lancerAuPremierGeste);
 
     if (musiquePrete) {
       lectureDemandee = false;
@@ -688,11 +690,22 @@ var AUDIO_BASE64 = "SUQzBAAAAAADbFRYWFgAAAATAAADbWlub3JfdmVyc2lvbgA1MTIAVFhYWAAA
   // Le scroll est conservé pour les autres navigateurs (Chrome/Edge/Android)
   // qui l'acceptent, mais Safari l'ignore — d'où l'intérêt d'avoir aussi
   // touchstart/touchend/click, qui eux fonctionnent de façon fiable sur iPhone.
+  //
+  // PC : une touche du clavier (keydown) OU un scroll de la molette (wheel)
+  // déclenchent le son. 'wheel' est ajouté en plus de 'scroll' car 'scroll'
+  // ne se déclenche que si la page défile réellement (contenu scrollable) ;
+  // 'wheel' se déclenche dès que l'utilisateur actionne la molette, même sans
+  // défilement effectif — ce qui rend le déclenchement plus fiable sur PC.
+  //
+  // Mobile : le scroll tactile (touchstart/touchend + scroll) suffit, comme
+  // demandé — pas de 'wheel' sur mobile puisqu'il n'y a pas de molette.
   window.addEventListener('pointerdown', lancerAuPremierGeste, { passive:true });
   window.addEventListener('touchstart', lancerAuPremierGeste, { passive:true });
   window.addEventListener('touchend', lancerAuPremierGeste, { passive:true });
   window.addEventListener('click', lancerAuPremierGeste, { passive:true });
   window.addEventListener('scroll', lancerAuPremierGeste, { passive:true });
+  window.addEventListener('wheel', lancerAuPremierGeste, { passive:true });
+  window.addEventListener('keydown', lancerAuPremierGeste, { passive:true });
 
   // Préchargement immédiat : on télécharge/décode la musique sans la jouer.
   if (document.readyState === 'loading') {
